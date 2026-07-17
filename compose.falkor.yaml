@@ -1,0 +1,303 @@
+x-common-env: &common_env
+  ENV: "production"
+  ENVIRONMENT: "production"
+  DEBUG: "false"
+  # INFO durante a homologação. Depois pode voltar para ERROR.
+  LOG_LEVEL: "INFO"
+  PYTHONUNBUFFERED: "1"
+
+  ################################################################################
+  # LLM
+  ################################################################################
+
+  STRUCTURED_OUTPUT_FRAMEWORK: "instructor"
+  LLM_INSTRUCTOR_MODE: "json_mode"
+
+  LLM_PROVIDER: "openai"
+  LLM_API_KEY: ${OPENAI_API_KEY}
+  LLM_MODEL: "openai/gpt-5-mini"
+  LLM_ENDPOINT: ""
+  LLM_TEMPERATURE: 0.0
+  LLM_MAX_TOKENS: 16384
+
+  ################################################################################
+  # Embeddings
+  ################################################################################
+
+  EMBEDDING_API_KEY: ${OPENAI_API_KEY}
+  EMBEDDING_PROVIDER: "openai"
+  EMBEDDING_MODEL: "openai/text-embedding-3-large"
+  EMBEDDING_ENDPOINT: ""
+  EMBEDDING_DIMENSIONS: 3072
+  EMBEDDING_MAX_TOKENS: 8191
+  EMBEDDING_BATCH_SIZE: 36
+
+  ################################################################################
+  # PostgreSQL relacional
+  ################################################################################
+
+  DB_PROVIDER: "postgres"
+  DB_NAME: "cognee_falkor_db"
+  DB_HOST: "postgres"
+  DB_PORT: "5432"
+  DB_USERNAME: "cognee"
+  DB_PASSWORD: ${DB_PASSWORD}
+
+  ################################################################################
+  # FalkorDB — Vector Store
+  #
+  # O adapter atual registra o provider com o nome "falkor".
+  ################################################################################
+
+  VECTOR_DB_PROVIDER: "falkor"
+  VECTOR_DB_URL: "falkordb"
+  VECTOR_DB_PORT: "6379"
+  VECTOR_DB_NAME: "cognee"
+  VECTOR_DB_KEY: ""
+  VECTOR_DATASET_DATABASE_HANDLER: "falkor_vector_local"
+
+  ################################################################################
+  # FalkorDB — Graph Store
+  ################################################################################
+
+  GRAPH_DATABASE_PROVIDER: "falkor"
+  GRAPH_DATABASE_URL: "falkordb"
+  GRAPH_DATABASE_PORT: "6379"
+  GRAPH_DATABASE_NAME: "cognee"
+  GRAPH_DATABASE_USERNAME: ""
+  GRAPH_DATABASE_PASSWORD: ""
+  GRAPH_DATASET_DATABASE_HANDLER: "falkor_graph_local"
+
+  ################################################################################
+  # Authentication / Multi-user
+  ################################################################################
+
+  FASTAPI_USERS_JWT_SECRET: ${JWT_SECRET}
+  FASTAPI_USERS_RESET_PASSWORD_TOKEN_SECRET: ${RESET_PASSWORD_SECRET}
+  FASTAPI_USERS_VERIFICATION_TOKEN_SECRET: ${VERIFICATION_TOKEN_SECRET}
+  JWT_LIFETIME_SECONDS: "3600"
+
+  REQUIRE_AUTHENTICATION: "true"
+  ENABLE_BACKEND_ACCESS_CONTROL: "true"
+
+  DEFAULT_USER_EMAIL: ${COGNEE_ADMIN_EMAIL}
+  DEFAULT_USER_PASSWORD: ${COGNEE_ADMIN_PASSWORD}
+
+  ################################################################################
+  # Storage
+  ################################################################################
+
+  SYSTEM_ROOT_DIRECTORY: "/app/.cognee_system"
+  DATA_ROOT_DIRECTORY: "/app/.data_storage"
+  ALLOW_HTTP_REQUESTS: "true"
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_USER: "cognee"
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: "cognee_falkor_db"
+
+    volumes:
+      # Volume novo para não reutilizar os mapeamentos Neo4j/PGVector da Stack antiga.
+      - postgres_falkor_data:/var/lib/postgresql/data
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U cognee -d cognee_falkor_db -h localhost || exit 1"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+    networks:
+      - cognee-falkor-network
+
+    deploy:
+      restart_policy:
+        condition: any
+        delay: 5s
+
+      resources:
+        limits:
+          memory: 2G
+
+  falkordb:
+    # Versão estável fixada para evitar mudanças inesperadas do adapter/banco.
+    image: falkordb/falkordb:v4.20.1
+    restart: unless-stopped
+
+    environment:
+      # Sem senha SOMENTE neste teste local.
+      # A porta 6379 não é publicada no host e fica restrita à rede da Stack.
+      REDIS_ARGS: >-
+        --appendonly yes
+        --appendfsync everysec
+        --maxmemory-policy noeviction
+
+      FALKORDB_ARGS: >-
+        THREAD_COUNT 4
+        TIMEOUT_MAX 60000
+
+    volumes:
+      - falkordb_data:/var/lib/falkordb/data
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "redis-cli -h 127.0.0.1 -p 6379 PING | grep -q PONG"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+    # Opcional, somente para abrir o FalkorDB Browser localmente:
+    # http://localhost:3001
+    #
+    # Como o banco está sem senha neste teste, não deixe esta porta publicada
+    # ao migrar para a VPS.
+    ports:
+      - target: 3000
+        published: 3001
+        protocol: tcp
+        mode: host
+
+    networks:
+      - cognee-falkor-network
+
+    deploy:
+      restart_policy:
+        condition: any
+        delay: 5s
+
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 3G
+        reservations:
+          memory: 1G
+
+  cognee:
+    # Imagem construída localmente com Dockerfile.cognee-falkor.
+    image: cognee-falkor:main-5b32da7
+    restart: unless-stopped
+
+    environment:
+      <<: *common_env
+
+      HOST: "0.0.0.0"
+      BIND_ADDRESS: "0.0.0.0"
+      HTTP_PORT: "8000"
+
+    volumes:
+      # Volumes novos para não misturar arquivos processados pela Stack Neo4j.
+      - cognee_falkor_system:/app/.cognee_system
+      - cognee_falkor_storage:/app/.data_storage
+
+    ports:
+      # Porta paralela à Stack Neo4j atual.
+      - target: 8000
+        published: 8030
+        protocol: tcp
+        mode: host
+
+    networks:
+      - cognee-falkor-network
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl --fail --silent http://localhost:8000/health >/dev/null || exit 1"
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 30
+      start_period: 120s
+
+    deploy:
+      restart_policy:
+        condition: any
+        delay: 10s
+
+      resources:
+        limits:
+          cpus: "4.0"
+          memory: 8G
+
+  cognee-mcp:
+    image: cognee/cognee-mcp:main-5b32da7
+    restart: unless-stopped
+
+    command:
+      - "--no-migration"
+
+    environment:
+      ENV: "production"
+      ENVIRONMENT: "production"
+      DEBUG: "false"
+      LOG_LEVEL: "INFO"
+      PYTHONUNBUFFERED: "1"
+
+      TRANSPORT_MODE: "http"
+      HTTP_PORT: "8000"
+
+      API_URL: "http://cognee:8000"
+
+      # Deve receber um Bearer Token ou uma API key criada no Cognee.
+      # Enquanto estiver vazio, o healthcheck poderá passar, mas as ferramentas
+      # que chamam a API protegida retornarão 401.
+      API_TOKEN: ${COGNEE_API_TOKEN:-}
+
+      # Aceitável apenas no laboratório local.
+      MCP_DISABLE_DNS_REBINDING_PROTECTION: "true"
+      MCP_CORS_ALLOW_ORIGINS: "http://localhost:3000,http://localhost:8031"
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)\" || exit 1"
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 40s
+
+    ports:
+      - target: 8000
+        published: 8031
+        protocol: tcp
+        mode: host
+
+    networks:
+      - cognee-falkor-network
+
+    deploy:
+      restart_policy:
+        condition: any
+        delay: 10s
+
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 4G
+
+networks:
+  cognee-falkor-network:
+    driver: overlay
+    attachable: true
+
+volumes:
+  postgres_falkor_data:
+  falkordb_data:
+  cognee_falkor_system:
+  cognee_falkor_storage:

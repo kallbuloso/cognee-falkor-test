@@ -1,0 +1,24 @@
+FROM cognee/cognee:main-5b32da7
+
+ARG FALKOR_ADAPTER_VERSION=0.3.1
+
+USER root
+
+# Instala apenas o cliente FalkorDB e o adapter, sem permitir que o pacote
+# comunitário substitua a versão do Cognee já fixada na imagem base.
+RUN uv pip install \
+      --python /app/.venv/bin/python \
+      "falkordb>=1.0.9,<2.0.0" \
+ && uv pip install \
+      --python /app/.venv/bin/python \
+      --no-deps \
+      "cognee-community-hybrid-adapter-falkor==${FALKOR_ADAPTER_VERSION}" \
+ && SITE_PACKAGES=$(/app/.venv/bin/python -c 'import site; print(site.getsitepackages()[0])') \
+ && printf '%s\n' \
+      'import cognee_community_hybrid_adapter_falkor.register' \
+      > "${SITE_PACKAGES}/cognee_falkor_autoregister.pth" \
+ && /app/.venv/bin/python -c "import cognee_community_hybrid_adapter_falkor.register; \
+from cognee.infrastructure.databases.graph.supported_databases import supported_databases as graph; \
+from cognee.infrastructure.databases.vector.supported_databases import supported_databases as vector; \
+assert 'falkor' in graph and 'falkor' in vector; \
+print('FalkorDB adapter registrado com sucesso')"
