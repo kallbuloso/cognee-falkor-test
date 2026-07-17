@@ -45,8 +45,6 @@ x-common-env: &common_env
 
   ################################################################################
   # FalkorDB — Vector Store
-  #
-  # O adapter atual registra o provider com o nome "falkor".
   ################################################################################
 
   VECTOR_DB_PROVIDER: "falkor"
@@ -102,7 +100,6 @@ services:
       POSTGRES_DB: "cognee_falkor_db"
 
     volumes:
-      # Volume novo para não reutilizar os mapeamentos Neo4j/PGVector da Stack antiga.
       - postgres_falkor_data:/var/lib/postgresql/data
 
     healthcheck:
@@ -129,13 +126,10 @@ services:
           memory: 2G
 
   falkordb:
-    # Versão estável fixada para evitar mudanças inesperadas do adapter/banco.
     image: falkordb/falkordb:v4.20.1
     restart: unless-stopped
 
     environment:
-      # Sem senha SOMENTE neste teste local.
-      # A porta 6379 não é publicada no host e fica restrita à rede da Stack.
       REDIS_ARGS: >-
         --appendonly yes
         --appendfsync everysec
@@ -159,11 +153,6 @@ services:
       retries: 30
       start_period: 30s
 
-    # Opcional, somente para abrir o FalkorDB Browser localmente:
-    # http://localhost:3001
-    #
-    # Como o banco está sem senha neste teste, não deixe esta porta publicada
-    # ao migrar para a VPS.
     ports:
       - target: 3000
         published: 3001
@@ -186,8 +175,7 @@ services:
           memory: 1G
 
   cognee:
-    # Imagem construída localmente com Dockerfile.cognee-falkor.
-    image: cognee-falkor:main-5b32da7
+    image: ghcr.io/kallbuloso/cognee-falkor-test:main-5b32da7
     restart: unless-stopped
 
     environment:
@@ -198,12 +186,10 @@ services:
       HTTP_PORT: "8000"
 
     volumes:
-      # Volumes novos para não misturar arquivos processados pela Stack Neo4j.
       - cognee_falkor_system:/app/.cognee_system
       - cognee_falkor_storage:/app/.data_storage
 
     ports:
-      # Porta paralela à Stack Neo4j atual.
       - target: 8000
         published: 8030
         protocol: tcp
@@ -251,13 +237,8 @@ services:
       HTTP_PORT: "8000"
 
       API_URL: "http://cognee:8000"
-
-      # Deve receber um Bearer Token ou uma API key criada no Cognee.
-      # Enquanto estiver vazio, o healthcheck poderá passar, mas as ferramentas
-      # que chamam a API protegida retornarão 401.
       API_TOKEN: ${COGNEE_API_TOKEN:-}
 
-      # Aceitável apenas no laboratório local.
       MCP_DISABLE_DNS_REBINDING_PROTECTION: "true"
       MCP_CORS_ALLOW_ORIGINS: "http://localhost:3000,http://localhost:8031"
 
