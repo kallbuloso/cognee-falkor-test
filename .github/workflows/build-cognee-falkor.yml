@@ -50,13 +50,14 @@ jobs:
           cache-to: type=gha,mode=max
       
       - name: Smoke test published image
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
         run: |
-          docker pull \
-            ghcr.io/kallbuloso/cognee-falkor-test:main-5b32da7
+          docker pull "${IMAGE}"
 
           docker run --rm \
             --entrypoint /app/.venv/bin/python \
-            ghcr.io/kallbuloso/cognee-falkor-test:main-5b32da7 \
+            "${IMAGE}" \
             -c "
           from cognee.infrastructure.databases.graph.supported_databases import supported_databases as graph
           from cognee.infrastructure.databases.vector.supported_databases import supported_databases as vector
