@@ -34,10 +34,7 @@ RUN uv pip install \
         --python /app/.venv/bin/python \
         --no-deps \
         /tmp/falkordb-adapter \
-    && SITE_PACKAGES=$(
-        /app/.venv/bin/python -c \
-        'import site; print(site.getsitepackages()[0])'
-       ) \
+    && SITE_PACKAGES=$(/app/.venv/bin/python -c 'import site; print(site.getsitepackages()[0])') \
     && printf '%s\n' \
         'import cognee_community_hybrid_adapter_falkor.register' \
         > "${SITE_PACKAGES}/cognee_falkor_autoregister.pth" \
