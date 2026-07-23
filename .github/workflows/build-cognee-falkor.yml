@@ -48,3 +48,24 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      
+      - name: Smoke test published image
+        run: |
+          docker pull \
+            ghcr.io/kallbuloso/cognee-falkor-test:main-5b32da7
+
+          docker run --rm \
+            --entrypoint /app/.venv/bin/python \
+            ghcr.io/kallbuloso/cognee-falkor-test:main-5b32da7 \
+            -c "
+          from cognee.infrastructure.databases.graph.supported_databases import supported_databases as graph
+          from cognee.infrastructure.databases.vector.supported_databases import supported_databases as vector
+          from cognee_community_hybrid_adapter_falkor.falkor_adapter import FalkorDBAdapter
+
+          assert 'falkor' in graph
+          assert 'falkor' in vector
+          assert hasattr(FalkorDBAdapter, '_sanitize_cypher_params')
+          assert hasattr(FalkorDBAdapter, '_deserialize_node_properties')
+
+          print('Cognee/FalkorDB adapter smoke test passed')
+          "
