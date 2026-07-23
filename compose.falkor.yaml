@@ -11,14 +11,14 @@ x-common-env: &common_env
   ################################################################################
 
   STRUCTURED_OUTPUT_FRAMEWORK: "instructor"
-  LLM_INSTRUCTOR_MODE: "json_mode"
+  LLM_INSTRUCTOR_MODE: "json_schema_mode"
 
   LLM_PROVIDER: "openai"
   LLM_API_KEY: ${OPENAI_API_KEY}
   LLM_MODEL: "openai/gpt-5-mini"
   LLM_ENDPOINT: ""
-  LLM_TEMPERATURE: 0.0
-  LLM_MAX_TOKENS: 16384
+  LLM_TEMPERATURE: "0.0"
+  LLM_MAX_TOKENS: "16384"
 
   ################################################################################
   # Embeddings
@@ -28,9 +28,9 @@ x-common-env: &common_env
   EMBEDDING_PROVIDER: "openai"
   EMBEDDING_MODEL: "openai/text-embedding-3-large"
   EMBEDDING_ENDPOINT: ""
-  EMBEDDING_DIMENSIONS: 3072
-  EMBEDDING_MAX_TOKENS: 8191
-  EMBEDDING_BATCH_SIZE: 36
+  EMBEDDING_DIMENSIONS: "3072"
+  EMBEDDING_MAX_TOKENS: "8191"
+  EMBEDDING_BATCH_SIZE: "36"
 
   ################################################################################
   # PostgreSQL relacional
@@ -70,16 +70,16 @@ x-common-env: &common_env
   # Authentication / Multi-user
   ################################################################################
 
-  FASTAPI_USERS_JWT_SECRET: ${JWT_SECRET}
-  FASTAPI_USERS_RESET_PASSWORD_TOKEN_SECRET: ${RESET_PASSWORD_SECRET}
-  FASTAPI_USERS_VERIFICATION_TOKEN_SECRET: ${VERIFICATION_TOKEN_SECRET}
+  FASTAPI_USERS_JWT_SECRET: ${JWT_SECRET:-}
+  # FASTAPI_USERS_RESET_PASSWORD_TOKEN_SECRET: ${RESET_PASSWORD_SECRET:-}
+  # FASTAPI_USERS_VERIFICATION_TOKEN_SECRET: ${VERIFICATION_TOKEN_SECRET:-}
   JWT_LIFETIME_SECONDS: "3600"
 
-  REQUIRE_AUTHENTICATION: "true"
-  ENABLE_BACKEND_ACCESS_CONTROL: "true"
+  REQUIRE_AUTHENTICATION: "false"
+  ENABLE_BACKEND_ACCESS_CONTROL: "false"
 
-  DEFAULT_USER_EMAIL: ${COGNEE_ADMIN_EMAIL}
-  DEFAULT_USER_PASSWORD: ${COGNEE_ADMIN_PASSWORD}
+  DEFAULT_USER_EMAIL: ${COGNEE_ADMIN_EMAIL:-}
+  DEFAULT_USER_PASSWORD: ${COGNEE_ADMIN_PASSWORD:-}
 
   ################################################################################
   # Storage
@@ -88,10 +88,12 @@ x-common-env: &common_env
   SYSTEM_ROOT_DIRECTORY: "/app/.cognee_system"
   DATA_ROOT_DIRECTORY: "/app/.data_storage"
   ALLOW_HTTP_REQUESTS: "true"
+  
+  RAISE_INCREMENTAL_LOADING_ERRORS: "true"
 
 services:
   postgres:
-    image: pgvector/pgvector:pg17
+    image: postgres:17-alpine
     restart: unless-stopped
 
     environment:
@@ -126,7 +128,7 @@ services:
           memory: 2G
 
   falkordb:
-    image: falkordb/falkordb:v4.20.1
+    image: falkordb/falkordb-server:v4.20.1
     restart: unless-stopped
 
     environment:
@@ -137,10 +139,15 @@ services:
 
       FALKORDB_ARGS: >-
         THREAD_COUNT 4
+        CACHE_SIZE 50
         TIMEOUT_MAX 60000
+        TIMEOUT_DEFAULT 30000
 
     volumes:
-      - falkordb_data:/var/lib/falkordb/data
+      - falkordb_data:/data
+
+    expose:
+      - "6379"
 
     healthcheck:
       test:
@@ -219,58 +226,58 @@ services:
           cpus: "4.0"
           memory: 8G
 
-  cognee-mcp:
-    image: cognee/cognee-mcp:main-5b32da7
-    restart: unless-stopped
+  # cognee-mcp:
+  #   image: cognee/cognee-mcp:main-5b32da7
+  #   restart: unless-stopped
 
-    command:
-      - "--no-migration"
+  #   command:
+  #     - "--no-migration"
 
-    environment:
-      ENV: "production"
-      ENVIRONMENT: "production"
-      DEBUG: "false"
-      LOG_LEVEL: "INFO"
-      PYTHONUNBUFFERED: "1"
+  #   environment:
+  #     ENV: "production"
+  #     ENVIRONMENT: "production"
+  #     DEBUG: "false"
+  #     LOG_LEVEL: "INFO"
+  #     PYTHONUNBUFFERED: "1"
 
-      TRANSPORT_MODE: "http"
-      HTTP_PORT: "8000"
+  #     TRANSPORT_MODE: "http"
+  #     HTTP_PORT: "8000"
 
-      API_URL: "http://cognee:8000"
-      API_TOKEN: ${COGNEE_API_TOKEN:-}
+  #     API_URL: "http://cognee:8000"
+  #     API_TOKEN: ${COGNEE_API_TOKEN:-}
 
-      MCP_DISABLE_DNS_REBINDING_PROTECTION: "true"
-      MCP_CORS_ALLOW_ORIGINS: "http://localhost:3000,http://localhost:8031"
+  #     MCP_DISABLE_DNS_REBINDING_PROTECTION: "true"
+  #     MCP_CORS_ALLOW_ORIGINS: "http://localhost:3000,http://localhost:8031"
 
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)\" || exit 1"
-        ]
-      interval: 30s
-      timeout: 10s
-      retries: 10
-      start_period: 40s
+  #   healthcheck:
+  #     test:
+  #       [
+  #         "CMD-SHELL",
+  #         "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)\" || exit 1"
+  #       ]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 10
+  #     start_period: 40s
 
-    ports:
-      - target: 8000
-        published: 8031
-        protocol: tcp
-        mode: host
+  #   ports:
+  #     - target: 8000
+  #       published: 8031
+  #       protocol: tcp
+  #       mode: host
 
-    networks:
-      - cognee-falkor-network
+  #   networks:
+  #     - cognee-falkor-network
 
-    deploy:
-      restart_policy:
-        condition: any
-        delay: 10s
+  #   deploy:
+  #     restart_policy:
+  #       condition: any
+  #       delay: 10s
 
-      resources:
-        limits:
-          cpus: "2.0"
-          memory: 4G
+  #     resources:
+  #       limits:
+  #         cpus: "2.0"
+  #         memory: 4G
 
 networks:
   cognee-falkor-network:
